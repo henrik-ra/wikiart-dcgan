@@ -34,6 +34,20 @@ in both, weights from N(0, 0.02), `BCELoss`, Adam (lr 0.0002, beta1 0.5), batch 
 5 epochs by default. The only difference is that the images come from the cache above instead of an
 `ImageFolder` that decodes the JPEGs every epoch.
 
+Variants (all off by default):
+
+| option | effect |
+|---|---|
+| `--real-label 0.9` | one-sided label smoothing |
+| `--lr-d`, `--lr-g` | separate learning rates (TTUR) |
+| `--sn` | spectral norm in D, without BatchNorm in D |
+| `--loss hinge`, `--loss wgan-gp --n-critic 5` | hinge loss, WGAN-GP |
+| `--ema 0.999` | EMA copy of G, evaluated as `G_ema` |
+| `--diffaug` | DiffAugment (color, translation, cutout) |
+| `--cond` | conditional on the style label |
+| `--arch resnet` | SAGAN-style ResNet G and D with spectral norm and self-attention |
+| `--resume` | continue from `runs/<name>/last.pt` |
+
 Output in `runs/<name>/` (ignored by git): `samples/epoch_XXX.png` (fixed noise, every epoch),
 `losses.png`, `history.json` and `G_epochXXX.pt` generator snapshots.
 
