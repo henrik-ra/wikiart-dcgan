@@ -73,3 +73,4 @@ Inception Score and FID with pytorch-ignite following the
 | `prepare_data.py` | download, resize and cache WikiArt             |
 | `train.py`        | training loop, samples, loss curves            |
 | `evaluate.py`     | IS and FID with pytorch-ignite                 |
+| `summarize.py`    | table and FID curves of all runs               |
