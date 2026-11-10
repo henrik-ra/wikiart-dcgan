@@ -12,6 +12,12 @@ the standard 2048-d pool3 FID with the pytorch-fid weights is computed as well
   python evaluate.py --run baseline                    # newest G snapshot of the run
   python evaluate.py --run baseline --all              # every G_epochXXX.pt (FID over training)
   python evaluate.py --run baseline --n 10000
+  python evaluate.py --run baseline --all --every 5      # every 5th snapshot
+  python evaluate.py --run cond --style Impressionism    # FID against one style only
+
+A snapshot with an EMA generator (train.py --ema) is evaluated twice, as "G" and "G_ema".
+For a conditional G the generated images get the labels of the real images they are
+compared with, so they follow the same style distribution.
 """
 
 import os
@@ -24,6 +30,7 @@ os.environ.setdefault("MKL_NUM_THREADS", "4")
 
 import argparse
 import json
+import re
 import time
 from pathlib import Path
 
@@ -34,7 +41,7 @@ from torch.utils.data import DataLoader, TensorDataset
 from torchvision import transforms
 from torchvision.utils import save_image
 
-from models import Generator
+from models import Generator, ResGenerator
 from train import DEFAULT_RUN_DIR
 
 
@@ -75,58 +82,92 @@ def build_evaluator(step_fn, device, with_real_is):
     return ev
 
 
-def evaluate_checkpoint(path, images, args, device, with_real_is):
+def evaluate_checkpoint(path, images, labels, args, device, with_real_is):
     ck = torch.load(path, map_location=device)
-    G = Generator(ck["nz"], ck["ngf"]).to(device)
-    G.load_state_dict(ck["G"])
-    # like the tutorial, images are generated with G in train mode (BatchNorm uses the
-    # statistics of the current batch), the snapshot itself is not changed
+    n_classes = ck.get("n_classes", 0)
+    results = []
+    for key in ("G", "G_ema"):
+        if key not in ck:
+            continue
+        if ck.get("arch", "dcgan") == "resnet":
+            G = ResGenerator(ck["nz"], ck["ngf"]).to(device)
+        else:
+            G = Generator(ck["nz"], ck["ngf"], n_classes=n_classes,
+                          image_size=ck.get("image_size", 64)).to(device)
+        G.load_state_dict(ck[key])
+        # like the tutorial, images are generated with G in train mode (BatchNorm uses the
+        # statistics of the current batch), the snapshot itself is not changed
 
-    @torch.no_grad()
-    def step(engine, batch):
-        real = batch[0].to(device).float().div(255)
-        z = torch.randn(len(real), ck["nz"], 1, 1, device=device)
-        fake = G(z).add(1).div(2).clamp(0, 1)  # [-1, 1] -> [0, 1]
-        return interpolate(fake, device), interpolate(real, device)
+        @torch.no_grad()
+        def step(engine, batch):
+            real = batch[0].to(device).float().div(255)
+            y = batch[1].to(device) if n_classes else None
+            z = torch.randn(len(real), ck["nz"], 1, 1, device=device)
+            fake = G(z, y).add(1).div(2).clamp(0, 1)  # [-1, 1] -> [0, 1]
+            return interpolate(fake, device), interpolate(real, device)
 
-    real_subset = images[torch.randperm(len(images))[:args.n]]
-    t0 = time.time()
-    m = build_evaluator(step, device, with_real_is).run(DataLoader(TensorDataset(real_subset), args.batch_size),
-                                                       max_epochs=1).metrics
-    res = {"checkpoint": path.name, "epoch": ck["epoch"], "n": len(real_subset), **m,
-           "eval_time_s": round(time.time() - t0)}
-    print(json.dumps(res))
+        sub = torch.randperm(len(images))[:args.n]
+        t0 = time.time()
+        m = build_evaluator(step, device, with_real_is and key == "G").run(
+            DataLoader(TensorDataset(images[sub], labels[sub]), args.batch_size), max_epochs=1).metrics
+        res = {"checkpoint": path.name, "G": key, "epoch": ck["epoch"], "iteration": ck.get("iteration"),
+               "style": args.style, "n": len(sub), **m, "eval_time_s": round(time.time() - t0)}
+        print(json.dumps(res), flush=True)
+        results.append(res)
 
-    with torch.no_grad():  # a fresh 8x8 grid for the report
-        z = torch.randn(64, ck["nz"], 1, 1, device=device)
-        save_image(G(z), path.with_name(path.stem + "_grid.png"), nrow=8, padding=2, normalize=True)
-    return res
+        with torch.no_grad():  # a fresh 8x8 grid for the report
+            z = torch.randn(64, ck["nz"], 1, 1, device=device)
+            y = labels[torch.randint(len(labels), (64,))].to(device) if n_classes else None
+            tag = ("_ema" if key == "G_ema" else "") + (f"_{args.style}" if args.style else "")
+            save_image(G(z, y), path.with_name(f"{path.stem}{tag}_grid.png"), nrow=8, padding=2, normalize=True)
+    return results
+
+
+def epoch_of(path):
+    return int(re.search(r"G_epoch(\d+)\.pt$", path.name).group(1))
 
 
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--run", required=True, help="run name in ~/.wikiart-runs")
+    p.add_argument("--run", required=True, help="run name in runs/")
     p.add_argument("--data", type=Path, default=None, help="real images to compare with (default: the run's data)")
     p.add_argument("--n", type=int, default=10000, help="number of generated and of real images")
     p.add_argument("--batch-size", type=int, default=100)
     p.add_argument("--all", action="store_true", help="evaluate every G snapshot, not only the newest")
+    p.add_argument("--every", type=int, default=1, help="with --all: only every N-th snapshot (and the last)")
+    p.add_argument("--style", default=None, help="compare with the real images of this style only")
+    p.add_argument("--epoch", type=int, default=None, help="evaluate only the snapshot of this epoch")
     p.add_argument("--seed", type=int, default=0)
     args = p.parse_args()
 
     torch.manual_seed(args.seed)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     run = DEFAULT_RUN_DIR / args.run
+    run_args = json.loads((run / "args.json").read_text())
     if args.data is None:
-        args.data = Path(json.loads((run / "args.json").read_text())["data"])
-    images = torch.load(args.data.expanduser())["images"]
+        args.data = Path(run_args["data"])
+    data = torch.load(args.data.expanduser())
+    images, labels, styles = data["images"], data["labels"], data["styles"]
+    keep_styles = [args.style] if args.style else run_args.get("styles")  # the run's training styles
+    if keep_styles:
+        keep = torch.isin(labels, torch.tensor([styles.index(s) for s in keep_styles]))
+        images, labels = images[keep], labels[keep]
 
-    ckpts = sorted(run.glob("G_epoch*.pt"))
+    ckpts = sorted(run.glob("G_epoch*.pt"), key=epoch_of)
     assert ckpts, f"no G_epochXXX.pt in {run}"
-    if not args.all:
+    if args.epoch is not None:
+        ckpts = [c for c in ckpts if epoch_of(c) == args.epoch]
+        assert ckpts, f"no snapshot of epoch {args.epoch} in {run}"
+    elif args.all:
+        ckpts = [c for i, c in enumerate(ckpts) if (i + 1) % args.every == 0 or c == ckpts[-1]]
+    else:
         ckpts = ckpts[-1:]
-    results = [evaluate_checkpoint(c, images, args, device, with_real_is=(i == 0)) for i, c in enumerate(ckpts)]
+    results = []
+    for i, c in enumerate(ckpts):
+        results += evaluate_checkpoint(c, images, labels, args, device, with_real_is=(i == 0))
 
-    out = run / ("metrics_all.json" if args.all else "metrics.json")
+    name = f"metrics_epoch{args.epoch}" if args.epoch is not None else ("metrics_all" if args.all else "metrics")
+    out = run / (f"{name}_{args.style}.json" if args.style else f"{name}.json")
     with open(out, "w") as f:
         json.dump(results, f, indent=2)
     print(f"saved {out}")
