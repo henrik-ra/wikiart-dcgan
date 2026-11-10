@@ -34,7 +34,7 @@ in both, weights from N(0, 0.02), `BCELoss`, Adam (lr 0.0002, beta1 0.5), batch 
 5 epochs by default. The only difference is that the images come from the cache above instead of an
 `ImageFolder` that decodes the JPEGs every epoch.
 
-Output in `~/.wikiart-runs/<name>/`: `samples/epoch_XXX.png` (fixed noise, every epoch),
+Output in `runs/<name>/` (ignored by git): `samples/epoch_XXX.png` (fixed noise, every epoch),
 `losses.png`, `history.json` and `G_epochXXX.pt` generator snapshots.
 
 ## 3. Evaluate
