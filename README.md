@@ -65,6 +65,23 @@ Inception Score and FID with pytorch-ignite following the
 - `fid`: standard 2048-d pool3 FID (pytorch-fid weights), comparable with the literature
 - `fid_ignite`: ignite's default FID on the 1000-d softmax output, as in the blog post
 
+## Results
+
+All runs of the report ([`report/report.pdf`](report/report.pdf)) train for 200 epochs (`bash run_200.sh`).
+IS and FID with 10k samples:
+
+| run | FID | IS |
+|---|---|---|
+| DCGAN | 45.1 | 2.94 |
+| + EMA of G (EMA generator) | 40.4 | 2.95 |
+| + spectral norm | 48.0 | 2.57 |
+| + TTUR | 50.7 | 2.97 |
+| + DiffAugment (collapsed at the end) | 142.5 | 3.27 |
+| all four combined (EMA generator) | 36.4 | 2.75 |
+| real images | | 3.66 |
+
+![Real training images and samples of the best model](assets/samples.png)
+
 ## Files
 
 | file              | content                                        |
@@ -76,3 +93,4 @@ Inception Score and FID with pytorch-ignite following the
 | `summarize.py`    | table and FID curves of all runs               |
 | `run_one.sh`      | one run: train, FID curve, final IS/FID; resumable |
 | `run_200.sh`      | all runs of the report (200 epochs each)       |
+| `report/report.pdf` | report                                       |
