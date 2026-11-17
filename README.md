@@ -74,3 +74,5 @@ Inception Score and FID with pytorch-ignite following the
 | `train.py`        | training loop, samples, loss curves            |
 | `evaluate.py`     | IS and FID with pytorch-ignite                 |
 | `summarize.py`    | table and FID curves of all runs               |
+| `run_one.sh`      | one run: train, FID curve, final IS/FID; resumable |
+| `run_200.sh`      | all runs of the report (200 epochs each)       |
