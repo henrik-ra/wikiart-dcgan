@@ -82,6 +82,8 @@ IS and FID with 10k samples:
 
 ![Real training images and samples of the best model](assets/samples.png)
 
+The samples on the right are 32 of 256 random samples, selected by eye; IS and FID use 10k unselected samples.
+
 ## Files
 
 | file              | content                                        |
